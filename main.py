@@ -2,19 +2,17 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from env import TG_TOKEN  # импорт токена
+from env import TG_TOKEN
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton
 
-reply_keyboard = [[KeyboardButton(text='/address'), KeyboardButton(text='/phone')],
-                  [KeyboardButton(text='/site'), KeyboardButton(text='/work_time')],
-                  [KeyboardButton(text="/stop")]]
+reply_keyboard = [[KeyboardButton(text='/help'), KeyboardButton(text='/genre')],
+                  [KeyboardButton(text='/reg'), [KeyboardButton(text="/stop")]]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG
 )
 
-# создаем маршрутизатор
 dp = Dispatcher()
 
 
@@ -25,7 +23,8 @@ async def main():
 
 @dp.message(Command('start'))
 async def start(message: types.Message):
-    await message.reply("Привет.", reply_markup=kb)
+    await message.reply("Привет! Это бот для поиска фильмов! Нажми /help, чтоб узнать о возможностях бота!",
+                        reply_markup=kb)
 
 
 @dp.message(Command('stop'))
@@ -35,33 +34,25 @@ async def stop(message: types.Message):
 
 @dp.message(Command('help'))
 async def help(message: types.Message):
-    await message.reply("Я бот справочник.")
+    await message.reply('/genre - выбрать фильм по жанру \n'
+                        '/reg - зарегистрироваться в MoSeFi \n'
+                        '/stop - прекратить работу \n')
 
 
-@dp.message(Command('address'))
+@dp.message(Command('reg'))
 async def address(message: types.Message):
-    await message.reply("Адрес: г. Москва, ул. Льва Толстого, 16")
+    await message.reply("Soon")
 
 
-@dp.message(Command('phone'))
+@dp.message(Command('genre'))
 async def phone(message: types.Message):
-    await message.reply("Телефон: +7(495)776-3030")
+    await message.reply("Soon")
 
 
-@dp.message(Command('site'))
-async def site(message: types.Message):
-    await message.reply("Сайт: http://www.yandex.ru/company")
-
-
-@dp.message(Command('work_time'))
-async def work_time(message: types.Message):
-    await message.reply("Время работы: круглосуточно.")
-
-
-@dp.message()  # декоратор для обработчика прочих сообщений
+@dp.message()
 async def echo_message(message: types.Message):
-    await message.answer(message.text)  # отправляет обратно новое сообщение с тем же текстом
+    await message.answer(message.text)
 
 
 if __name__ == '__main__':
-    asyncio.run(main())  # начинаем принимать сообщения
+    asyncio.run(main())
