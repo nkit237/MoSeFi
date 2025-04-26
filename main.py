@@ -5,6 +5,8 @@ from aiogram.filters import Command
 from env import TG_TOKEN
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton
 
+import db_session
+
 reply_keyboard = [[KeyboardButton(text='/help'), KeyboardButton(text='/genre')],
                   [KeyboardButton(text='/reg'), [KeyboardButton(text="/stop")]]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
@@ -23,6 +25,12 @@ async def main():
 
 @dp.message(Command('start'))
 async def start(message: types.Message):
+    user = db_session.User()
+    user.id_user = message.from_user.id
+    user.name = message.from_user.first_name
+    db_sess = db_session.create_session()
+    db_sess.add(user)
+    db_sess.commit()
     await message.reply("Привет! Это бот для поиска фильмов! Нажми /help, чтоб узнать о возможностях бота!",
                         reply_markup=kb)
 
