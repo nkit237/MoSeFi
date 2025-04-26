@@ -35,14 +35,26 @@ class Film(SqlAlchemyBase):
 
     id = sa.Column(sa.Integer,
                    primary_key=True, autoincrement=True)
-    name = sa.Column(sa.String, nullable=True)
-    genre = sa.Column(sa.String, index=True, nullable=True)
+    title = sa.Column(sa.String, nullable=True)
+    id_genre = sa.Column(sa.Integer, sa.ForeignKey("genre.id"))
     about = sa.Column(sa.String, nullable=True)
     link = sa.Column(sa.String, nullable=True)
     grade = sa.Column(sa.Float, nullable=True)
     quantity = sa.Column(sa.Integer, nullable=True)
 
+    genre = orm.relationship('Genre')
     watch = orm.relationship("Watch", back_populates='film')
+    review = orm.relationship("Review", back_populates='film')
+
+
+class Genre(SqlAlchemyBase):
+    __tablename__ = 'genre'
+
+    id = sa.Column(sa.Integer,
+                   primary_key=True, autoincrement=True)
+    title = sa.Column(sa.String, nullable=True)
+
+    film = orm.relationship("Film", back_populates='genre')
 
 
 class Review(SqlAlchemyBase):
@@ -50,10 +62,12 @@ class Review(SqlAlchemyBase):
 
     id = sa.Column(sa.Integer,
                    primary_key=True, autoincrement=True)
-    id_film = sa.Column(sa.Integer, nullable=True)
     review = sa.Column(sa.String, nullable=True)
+    grade = sa.Column(sa.Float, nullable=True)
     id_user = sa.Column(sa.Integer, sa.ForeignKey("users.id"))
+    id_film = sa.Column(sa.Integer, sa.ForeignKey("films.id"))
     user = orm.relationship('User')
+    film = orm.relationship('Film')
 
 
 class Watch(SqlAlchemyBase):
