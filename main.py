@@ -68,7 +68,7 @@ async def genre(message: types.Message):
         r_film = random.choice(g.film)
         await message.reply(r_film.title)
     except IndexError:
-        await message.reply("Нет таких фильмов")
+        await message.reply("Нет таких фильмов.")
 
 
 
