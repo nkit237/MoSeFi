@@ -26,7 +26,7 @@ for g in db_sess.query(Genre):
         genres.append([InlineKeyboardButton(text=str(g.title), callback_data=str(g.title))])
 
 
-gs = InlineKeyboardMarkup(inline_keyboard=[g for g in genres[:11]])
+gs = InlineKeyboardMarkup(inline_keyboard=[g for g in genres])
 
 sp_g = set(x.title for x in db_sess.query(Genre))
 
