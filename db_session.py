@@ -93,4 +93,4 @@ class User(SqlAlchemyBase):
     watch = orm.relationship("Watch", back_populates='user')
 
 
-global_init("test.db")
+global_init("film.db")
