@@ -66,7 +66,7 @@ async def genre(message: types.Message):
     g = db_sess.query(Genre).filter(Genre.title==n).first()
     try:
         r_film = random.choice(g.film)
-        await message.reply(r_film.title)
+        await message.reply(f'Название: {r_film.title}\n\nОписание: {r_film.about}\n\nСсылка на трейлер: {r_film.link}\n\nОценка: {r_film.grade}')
     except IndexError:
         await message.reply("Нет таких фильмов")
 
