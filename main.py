@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -17,10 +18,17 @@ reply_keyboard = [[KeyboardButton(text='/help'), KeyboardButton(text='/genres')]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 db_sess = db_session.create_session()
-genres = []
+genres = [[]]
 for g in db_sess.query(Genre):
-    genres.append([InlineKeyboardButton(text=str(g.title), callback_data=str(g.title))])
-gs = InlineKeyboardMarkup(inline_keyboard=[g for g in genres])
+    if len(genres[-1]) < 2:
+        genres[-1].append(InlineKeyboardButton(text=str(g.title), callback_data=str(g.title)))
+    else:
+        genres.append([InlineKeyboardButton(text=str(g.title), callback_data=str(g.title))])
+
+
+gs = InlineKeyboardMarkup(inline_keyboard=[g for g in genres[:11]])
+
+sp_g = set(x.title for x in db_sess.query(Genre))
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG
@@ -60,8 +68,8 @@ async def start(message: types.Message):
 @dp.callback_query(F.data == "/help")
 async def send_help(callback: types.CallbackQuery):
     await callback.answer(
-        text="/genres - выбрать фильм по жанру \n"
-             "/stop - прекратить работу \n",
+        text="/genres - выбрать жанр для поиска фильма "
+             "/stop - прекратить работу",
         show_alert=True,
     )
 
@@ -80,17 +88,19 @@ async def stop(message: types.Message):
 
 @dp.message(Command('genres'))
 async def genres(message: types.Message):
-    await message.answer('Выберите жанр', reply_markup=gs)
+    await message.answer('Выберите жанр из списка ниже:', reply_markup=gs)
 
 
-'''@dp.callback_query(F.data in db_sess.query(Genre))
+@dp.callback_query(F.data.in_(sp_g))
 async def send_film(call: types.CallbackQuery):
-    q = db_sess.query(Genre).filter(Genre.title == F.data).first()
+    q = db_sess.query(Genre).filter(Genre.title == call.data).first()
     try:
         r_film = random.choice(q.film)
-        await call.message.answer(r_film.title)
+        await call.message.answer(f"Название: {r_film.title}\nСюжет: {r_film.about} \n"
+                                  f"Длительность: {r_film.quantity}\nОценка: {r_film.grade}\nСсылка: {r_film.link}")
     except IndexError:
-        await call.message.answer("Нет такого фильма.")'''
+        await call.message.answer("Вы посмотрели все фильмы по указанному жанру.")
+
 
 
 @dp.message(Command('stop'))
