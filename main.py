@@ -97,7 +97,7 @@ async def send_film(call: types.CallbackQuery):
     try:
         r_film = random.choice(q.film)
         await call.message.answer(f"Название: {r_film.title}\nСюжет: {r_film.about} \n"
-                                  f"Длительность: {r_film.quantity}\nОценка: {r_film.grade}\nСсылка: {r_film.link}")
+                                  f"Кол-во оценок: {r_film.quantity}\nОценка: {r_film.grade}\nСсылка: {r_film.link}")
     except IndexError:
         await call.message.answer("Вы посмотрели все фильмы по указанному жанру.")
 
