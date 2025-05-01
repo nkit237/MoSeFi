@@ -94,15 +94,15 @@ async def genres(message: types.Message):
 @dp.callback_query(F.data.in_(sp_g))
 async def send_film(call: types.CallbackQuery):
     q = db_sess.query(Genre).filter(Genre.title == call.data).first().film
+    q_films = []
     u_id = call.from_user.id
-    films = db_sess.query(Watch).filter(Watch.id_user == u_id).all()
-    for f in films:
-        fil = f.film
-        if fil in q:
-            q.pop(q.index(fil))
+    films = [x.film for x in db_sess.query(Watch).filter(Watch.id_user == u_id).all()]
+    for f in q:
+        if f not in films:
+            q_films.append(f)
     try:
-        r_film = random.choice(q)
-        await call.message.answer(f"Название: {r_film.title}\n\nСюжет: {r_film.about} \n\n"
+        r_film = random.choice(q_films)
+        await call.message.answer(f"Название: {r_film.title}\n\nСюжет: {r_film.about}\n\n"
                                   f"Оценка: {r_film.grade}\nКол-во оценок: {r_film.quantity}\n\n"
                                   f"Ссылка на трейлер: {r_film.link}", reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{r_film.id}')],
