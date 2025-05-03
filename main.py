@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import types
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -13,11 +14,16 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import db_session
 from db_session import User, Genre, Watch, Review
 
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG
+)
+dp = Dispatcher()
+db_sess = db_session.create_session()
+
 reply_keyboard = [[KeyboardButton(text='/help'), KeyboardButton(text='/genres')],
+                  [KeyboardButton(text='/watchs'), KeyboardButton(text='/reviews')],
                   [KeyboardButton(text="/stop")]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
-
-db_sess = db_session.create_session()
 
 genres = [[]]
 for g in db_sess.query(Genre):
@@ -28,13 +34,6 @@ for g in db_sess.query(Genre):
 gs = InlineKeyboardMarkup(inline_keyboard=[g for g in genres])
 
 sp_g = set(x.title for x in db_sess.query(Genre))
-sp_wg = set(x for x in ['Посмотрел(а) фильм', 'Получить случайный отзыв'])
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG
-)
-
-dp = Dispatcher()
 
 
 async def main():
@@ -44,6 +43,12 @@ async def main():
 
 @dp.message(Command('start'))
 async def start(message: types.Message):
+    builder = InlineKeyboardBuilder()
+    builder.add(types.InlineKeyboardButton(
+        text="Help",
+        callback_data="/help")
+    )
+
     u_id = message.from_user.id
     user = db_sess.query(User).filter(User.id_user == u_id).first()
     if not user:
@@ -53,22 +58,27 @@ async def start(message: types.Message):
         db_sess.add(user)
         db_sess.commit()
 
-    builder = InlineKeyboardBuilder()
-    builder.add(types.InlineKeyboardButton(
-        text="Help",
-        callback_data="/help")
-    )
-    await message.reply('Привет! Это бот для поиска фильмов!', reply_markup=kb)
-    await message.answer(
-        "Нажми 'Help', чтоб узнать о возможностях бота!",
-        reply_markup=builder.as_markup()
-    )
+        await message.reply(f'Здравствуйте, {message.from_user.first_name}! Это бот для поиска фильмов!',
+                            reply_markup=kb)
+        await message.answer(
+            "Нажмите 'Help', чтоб узнать о возможностях бота!",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await message.reply(f'С возвращением, {message.from_user.first_name}! Решили снова найти новый для себя фильм?',
+                            reply_markup=kb)
+        await message.answer(
+            "Если вдруг забыли, то нажмите 'Help', чтоб вспомнить возможности бота!",
+            reply_markup=builder.as_markup()
+        )
 
 
 @dp.callback_query(F.data == "/help")
 async def send_help(callback: types.CallbackQuery):
     await callback.answer(
-        text=f"/genres - выбрать жанр для поиска фильма\n"
+        text=f"Функционал:\n\n"
+             f"/genres - выбрать жанр для поиска фильма\n\n"
+             f"/watchs - посмотреть список просмотренных фильмов\n\n"
              f"/stop - прекратить работу",
         show_alert=True,
     )
@@ -81,7 +91,7 @@ async def stop(message: types.Message):
         text="Help",
         callback_data="/help"))
     await message.answer(
-        "Нажми 'Help', чтоб узнать о возможностях бота!",
+        "Нажмите 'Help', чтоб посмотреть возможности бота!",
         reply_markup=builder.as_markup()
     )
 
@@ -89,6 +99,53 @@ async def stop(message: types.Message):
 @dp.message(Command('genres'))
 async def genres(message: types.Message):
     await message.answer('Выберите жанр из списка ниже:', reply_markup=gs)
+
+
+def list_watchs(id, page):
+    offset_v = int(page) * 10
+    return ([x.film.title for x in db_sess.query(Watch).filter(Watch.id_user == id).limit(10).offset(offset_v).all()],
+            db_sess.query(Watch).filter(Watch.id_user == id).count() // 10)
+
+
+@dp.message(Command('watchs'))
+async def send_list_watchs(message: types.Message):
+    s_watchs = list_watchs(message.from_user.id, 0)
+    if s_watchs[0]:
+        await message.answer(f'Список просмотренных фильмов:\n\n{'\n'.join(s_watchs[0])}',
+                             reply_markup=InlineKeyboardMarkup(
+                                 inline_keyboard=[
+                                     [InlineKeyboardButton(text='<',
+                                                           callback_data=f'com_3@{(0 - 1) % s_watchs[1]}'),
+                                      InlineKeyboardButton(text='>',
+                                                           callback_data=f'com_3@{(0 + 1) % s_watchs[1]}')]]))
+    else:
+        await message.answer('Вы не посмотрели ни одного фильма. Список просмотренных фильмов пуст.')
+
+
+def list_reviews(id, page):
+    offset_v = int(page) * 1
+    return ([(x.review, x.grade, x.film.title) for x in
+             db_sess.query(Review).filter(Review.id_user == id).limit(1).offset(offset_v).all()],
+            db_sess.query(Review).filter(Review.id_user == id).count() // 1)
+
+
+@dp.message(Command('reviews'))
+async def send_list_reviews(message: types.Message):
+    s_reviews = list_reviews(message.from_user.id, 0)
+    if s_reviews[0]:
+        r = s_reviews[0]
+        await message.answer(f'Ваши отзывы:\n'
+                             f'Фильм: {r[2]}\n\n'
+                             f'Оценка: {r[1]}\n\n'
+                             f'Отзыв: {r[0]}\n\n',
+                             reply_markup=InlineKeyboardMarkup(
+                                 inline_keyboard=[
+                                     [InlineKeyboardButton(text='<',
+                                                           callback_data=f'com_4@{(0 - 1) % s_reviews[1]}'),
+                                      InlineKeyboardButton(text='>',
+                                                           callback_data=f'com_4@{(0 + 1) % s_reviews[1]}')]]))
+    else:
+        await message.answer('Вы не оставили ни одного отзыва. Список ваших отзывов пуст.')
 
 
 @dp.callback_query(F.data.in_(sp_g))
@@ -116,13 +173,12 @@ async def send_film(call: types.CallbackQuery):
 async def watch_and_reviews(call: types.CallbackQuery):
     d = call.data[4:].split('@')
     if d[0] == '1':
-        # пример добавления просмотра, но он должен быть не тут, а после оценки и оставления отзыва
-        # watch = Watch()
-        # watch.id_user = call.from_user.id
-        # watch.id_film = int(d[1])
-        # db_sess.add(watch)
-        # db_sess.commit()
-        await call.message.answer("Поставь оценку и оставь свой отзыв на фильм.")
+        watch = Watch()
+        watch.id_user = call.from_user.id
+        watch.id_film = int(d[1])
+        db_sess.add(watch)
+        db_sess.commit()
+        await call.message.answer("Поставьте оценку и оставьте свой отзыв на фильм.")
     elif d[0] == '2':
         q = db_sess.query(Review).filter(Review.id_film == d[1]).all()
         try:
@@ -138,6 +194,28 @@ async def watch_and_reviews(call: types.CallbackQuery):
                 inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{d[1]}')],
                                  [InlineKeyboardButton(text='Получить случайный отзыв',
                                                        callback_data=f'com_2@{d[1]}')]]))
+    elif d[0] == '3':
+        s_watchs = list_watchs(call.from_user.id, d[1])
+        await call.message.edit_text(f'Список просмотренных фильмов:\n\n{'\n'.join(s_watchs[0])}',
+                                     reply_markup=InlineKeyboardMarkup(
+                                         inline_keyboard=[
+                                             [InlineKeyboardButton(text='<',
+                                                                   callback_data=f'com_3@{(int(d[1]) - 1) % s_watchs[1]}'),
+                                              InlineKeyboardButton(text='>',
+                                                                   callback_data=f'com_3@{(int(d[1]) + 1) % s_watchs[1]}')]]))
+    elif d[0] == '4':
+        s_reviews = list_reviews(call.message.from_user.id, 0)
+        r = s_reviews[0]
+        await call.message.answer(f'Ваши отзывы:\n'
+                                  f'Фильм: {r[2]}\n\n'
+                                  f'Оценка: {r[1]}\n\n'
+                                  f'Отзыв: {r[0]}\n\n',
+                                  reply_markup=InlineKeyboardMarkup(
+                                      inline_keyboard=[
+                                          [InlineKeyboardButton(text='<',
+                                                                callback_data=f'com_4@{(int(d[1]) - 1) % s_reviews[1]}'),
+                                           InlineKeyboardButton(text='>',
+                                                                callback_data=f'com_4@{(int(d[1]) + 1) % s_reviews[1]}')]]))
 
 
 @dp.message(Command('stop'))
