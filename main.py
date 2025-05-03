@@ -2,8 +2,10 @@ import asyncio
 import logging
 import random
 
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
 
 from env import TG_TOKEN
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, \
@@ -35,6 +37,7 @@ logging.basicConfig(
 )
 
 dp = Dispatcher()
+fr = Router()
 
 
 async def main():
@@ -93,6 +96,7 @@ async def genres(message: types.Message):
 
 @dp.callback_query(F.data.in_(sp_g))
 async def send_film(call: types.CallbackQuery):
+    await call.message.edit_text(f'Фильм по жанру {call.data}', reply_markup=None)
     q = db_sess.query(Genre).filter(Genre.title == call.data).first().film
     q_films = []
     u_id = call.from_user.id
@@ -112,17 +116,26 @@ async def send_film(call: types.CallbackQuery):
         await call.message.answer("Больше нет фильмов по указанному жанру.")
 
 
+class Film(StatesGroup):
+    grade = State()
+    review = State()
+    confirm = State()
+
+
 @dp.callback_query(F.data.startswith("com_"))
-async def watch_and_reviews(call: types.CallbackQuery):
+async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
     d = call.data[4:].split('@')
     if d[0] == '1':
-        # пример добавления просмотра, но он должен быть не тут, а после оценки и оставления отзыва
-        # watch = Watch()
-        # watch.id_user = call.from_user.id
-        # watch.id_film = int(d[1])
-        # db_sess.add(watch)
-        # db_sess.commit()
-        await call.message.answer("Поставь оценку и оставь свой отзыв на фильм.")
+        watch = Watch()
+        watch.id_user = call.from_user.id
+        watch.id_film = int(d[1])
+        db_sess.add(watch)
+        db_sess.commit()
+        await state.set_state(Film.confirm)
+        await state.update_data(film=watch.id_film, user=watch.id_user)
+        await call.message.answer("Хотите оставить отзыв и оценку?", reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text='Да', callback_data='Да')],
+                             [InlineKeyboardButton(text='Нет', callback_data='Нет')]]))
     elif d[0] == '2':
         q = db_sess.query(Review).filter(Review.id_film == d[1]).all()
         try:
@@ -138,6 +151,49 @@ async def watch_and_reviews(call: types.CallbackQuery):
                 inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{d[1]}')],
                                  [InlineKeyboardButton(text='Получить случайный отзыв',
                                                        callback_data=f'com_2@{d[1]}')]]))
+
+
+@dp.callback_query(F.data == 'Нет')
+async def end_fd(call: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await call.message.answer('Нет так нет.')
+
+
+@dp.callback_query(F.data == 'Да')
+async def feedback(call: types.CallbackQuery, state: FSMContext):
+    await state.set_state(Film.grade)
+    await call.message.delete()
+    await call.message.answer('Поставьте оценку от 0 до 5:', reply_markup=InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=f'{x}', callback_data=f'grade.{x}')] for x in range(6)]
+    ))
+
+
+@dp.callback_query(F.data.startswith('grade.'))
+async def safe_grade(call: types.CallbackQuery, state: FSMContext):
+    await state.update_data(grade=call.data[-1])
+    await call.message.edit_text(f'Ваша оценка: {call.data[-1]}')
+    await call.message.answer('Спасибо за оценку!')
+
+    await state.set_state(Film.review)
+    await call.message.answer('Оставьте отзыв:')
+
+
+@dp.message(Film.review)
+async def safe_review(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    fback = Review()
+
+    review = message.text
+
+    fback.grade = data['grade']
+    fback.review = review
+    fback.id_user = data['user']
+    fback.id_film = data['film']
+
+    db_sess.add(fback)
+    db_sess.commit()
+    await state.clear()
+    await message.answer('Сохранено!')
 
 
 @dp.message(Command('stop'))
