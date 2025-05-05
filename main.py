@@ -121,18 +121,26 @@ def list_watchs(id, page):
 async def send_list_watchs(message: types.Message):
     s_watchs = list_watchs(message.from_user.id, 0)
     if s_watchs[0]:
-        await message.answer(f'Список просмотренных фильмов:\n\n{'\n'.join(s_watchs[0])}',
+        data = "\n".join(s_watchs[0])
+        try:
+            z1 = (0 - 1) % s_watchs[1]
+            z2 = (0 + 1) % s_watchs[1]
+        except ZeroDivisionError:
+            z1 = 0
+            z2 = 0
+        await message.answer(f'Список просмотренных фильмов:\n\n{data}',
                              reply_markup=InlineKeyboardMarkup(
                                  inline_keyboard=[
                                      [InlineKeyboardButton(text='<',
-                                                           callback_data=f'com_3@{(0 - 1) % s_watchs[1]}'),
+                                                           callback_data=f'com_3@{z1}'),
                                       InlineKeyboardButton(text='>',
-                                                           callback_data=f'com_3@{(0 + 1) % s_watchs[1]}')]]))
+                                                           callback_data=f'com_3@{z2}')]]))
     else:
         await message.answer('Вы не посмотрели ни одного фильма. Список просмотренных фильмов пуст.')
 
 
 def list_reviews(id, page):
+    print(page)
     offset_v = int(page) * 1
     return ([(x.review, x.grade, x.film.title) for x in
              db_sess.query(Review).filter(Review.id_user == id).limit(1).offset(offset_v).all()],
@@ -142,8 +150,9 @@ def list_reviews(id, page):
 @dp.message(Command('reviews'))
 async def send_list_reviews(message: types.Message):
     s_reviews = list_reviews(message.from_user.id, 0)
-    if s_reviews[0]:
-        r = s_reviews[0]
+    print(s_reviews)
+    if s_reviews[0][0]:
+        r = s_reviews[0][0]
         await message.answer(f'Ваши отзывы:\n'
                              f'Фильм: {r[2]}\n\n'
                              f'Оценка: {r[1]}\n\n'
@@ -217,26 +226,34 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                                        callback_data=f'com_2@{d[1]}')]]))
     elif d[0] == '3':
         s_watchs = list_watchs(call.from_user.id, d[1])
-        await call.message.edit_text(f'Список просмотренных фильмов:\n\n{'\n'.join(s_watchs[0])}',
+        data = "\n".join(s_watchs[0])
+        try:
+            z1 = (int(d[1]) - 1) % s_watchs[1]
+            z2 = (int(d[1]) + 1) % s_watchs[1]
+        except ZeroDivisionError:
+            z1 = 0
+            z2 = 0
+        await call.message.edit_text(f'Список просмотренных фильмов:\n\n{data}',
                                      reply_markup=InlineKeyboardMarkup(
                                          inline_keyboard=[
                                              [InlineKeyboardButton(text='<',
-                                                                   callback_data=f'com_3@{(int(d[1]) - 1) % s_watchs[1]}'),
+                                                                   callback_data=f'com_3@{z1}'),
                                               InlineKeyboardButton(text='>',
-                                                                   callback_data=f'com_3@{(int(d[1]) + 1) % s_watchs[1]}')]]))
+                                                                   callback_data=f'com_3@{z2}')]]))
     elif d[0] == '4':
-        s_reviews = list_reviews(call.message.from_user.id, 0)
-        r = s_reviews[0]
-        await call.message.answer(f'Ваши отзывы:\n'
-                                  f'Фильм: {r[2]}\n\n'
-                                  f'Оценка: {r[1]}\n\n'
-                                  f'Отзыв: {r[0]}\n\n',
-                                  reply_markup=InlineKeyboardMarkup(
-                                      inline_keyboard=[
-                                          [InlineKeyboardButton(text='<',
-                                                                callback_data=f'com_4@{(int(d[1]) - 1) % s_reviews[1]}'),
-                                           InlineKeyboardButton(text='>',
-                                                                callback_data=f'com_4@{(int(d[1]) + 1) % s_reviews[1]}')]]))
+        s_reviews = list_reviews(call.from_user.id, d[1])
+        print(s_reviews)
+        r = s_reviews[0][0]
+        await call.message.edit_text(f'Ваши отзывы:\n'
+                                     f'Фильм: {r[2]}\n\n'
+                                     f'Оценка: {r[1]}\n\n'
+                                     f'Отзыв: {r[0]}\n\n',
+                                     reply_markup=InlineKeyboardMarkup(
+                                         inline_keyboard=[
+                                             [InlineKeyboardButton(text='<',
+                                                                   callback_data=f'com_4@{(int(d[1]) - 1) % s_reviews[1]}'),
+                                              InlineKeyboardButton(text='>',
+                                                                   callback_data=f'com_4@{(int(d[1]) + 1) % s_reviews[1]}')]]))
 
 
 @dp.callback_query(F.data == 'Нет')
