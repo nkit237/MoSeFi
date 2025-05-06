@@ -1,7 +1,10 @@
+import aiohttp
 import asyncio
 import logging
 import random
 import types
+
+from bs4 import BeautifulSoup
 
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command
@@ -14,7 +17,7 @@ from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButt
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db_session
-from db_session import User, Genre, Watch, Review
+from db_session import User, Genre, Watch, Review, Film
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG
@@ -22,7 +25,8 @@ logging.basicConfig(
 dp = Dispatcher()
 db_sess = db_session.create_session()
 
-reply_keyboard = [[KeyboardButton(text='/help'), KeyboardButton(text='/genres')],
+reply_keyboard = [[KeyboardButton(text='/help')],
+                  [KeyboardButton(text='/genres'), KeyboardButton(text='/game')],
                   [KeyboardButton(text='/watchs'), KeyboardButton(text='/reviews')],
                   [KeyboardButton(text="/stop")]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
@@ -89,9 +93,36 @@ async def send_help(callback: types.CallbackQuery):
         text=f"Функционал:\n\n"
              f"/genres - выбрать жанр для поиска фильма\n\n"
              f"/watchs - посмотреть список просмотренных фильмов\n\n"
+             f"/reviews - посмотреть свои отзывы и оценки на фильмы.\n\n"
              f"/stop - прекратить работу",
         show_alert=True,
     )
+
+
+async def film_image():
+    async with aiohttp.ClientSession() as session:
+        q = db_sess.query(Film).all()
+        f = random.choice(q)
+        async with session.get(
+                f'https://yandex.ru/images/search?from=tabbar&text=кадр из фильма {f.title}') as response:
+            print("Status:", response.status)
+            print("Content-type:", response.headers['content-type'])
+
+            html = await response.text()
+            soup = BeautifulSoup(html, 'html.parser')
+            sel = soup.select('div[class="SerpList"]')
+            r_image = random.choice(sel[0].find_all('img'))
+            link = r_image.get('src')
+            return link
+            # print(html, file=open('page.html', 'w', encoding='utf-8'))
+
+
+@dp.message(Command('game'))
+async def game(message: types.Message):
+    await message.answer('Угадай фильм по кадру из него.')
+    link = await film_image()
+    print(link)
+    await message.answer(link)
 
 
 @dp.message(Command('help'))
@@ -169,7 +200,6 @@ async def send_list_reviews(message: types.Message):
 
 @dp.callback_query(F.data.in_(sp_g))
 async def send_film(call: types.CallbackQuery):
-    await call.message.edit_text(f'Фильм по жанру {call.data}', reply_markup=None)
     q = db_sess.query(Genre).filter(Genre.title == call.data).first().film
     q_films = []
     u_id = call.from_user.id
@@ -179,9 +209,11 @@ async def send_film(call: types.CallbackQuery):
             q_films.append(f)
     try:
         r_film = random.choice(q_films)
-        await call.message.answer(f"Название: {r_film.title}\n\nСюжет: {r_film.about}\n\n"
-                                  f"Оценка: {r_film.grade}\nКол-во оценок: {r_film.quantity}\n\n"
-                                  f"Ссылка на трейлер: {r_film.link}", reply_markup=InlineKeyboardMarkup(
+        await call.message.edit_text(f"Название: {r_film.title}\n\n"
+                                     f"Жанр: {call.data}\n\n"
+                                     f"Сюжет: {r_film.about}\n\n"
+                                     f"Оценка: {r_film.grade}\nКол-во оценок: {r_film.quantity}\n\n"
+                                     f"Ссылка на трейлер: {r_film.link}", reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{r_film.id}')],
                              [InlineKeyboardButton(text='Получить случайный отзыв',
                                                    callback_data=f'com_2@{r_film.id}')]]))
@@ -189,7 +221,7 @@ async def send_film(call: types.CallbackQuery):
         await call.message.answer("Больше нет фильмов по указанному жанру.")
 
 
-class Film(StatesGroup):
+class ReviewStates(StatesGroup):
     grade = State()
     review = State()
     confirm = State()
@@ -204,15 +236,17 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
         watch.id_film = int(d[1])
         db_sess.add(watch)
         db_sess.commit()
-        await state.set_state(Film.confirm)
+        await state.set_state(ReviewStates.confirm)
         await state.update_data(film=watch.id_film, user=watch.id_user)
+        await call.message.edit_reply_markup(None)
         await call.message.answer("Хотите оставить отзыв и оценку?", reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text='Да', callback_data='Да')],
+            inline_keyboard=[[InlineKeyboardButton(text='Да', callback_data=f'Да@{d[1]}')],
                              [InlineKeyboardButton(text='Нет', callback_data='Нет')]]))
     elif d[0] == '2':
         q = db_sess.query(Review).filter(Review.id_film == d[1]).all()
         try:
             r_review = random.choice(q)
+            await call.message.edit_reply_markup(None)
             await call.message.answer(f"Автор: {r_review.user.name}\n\n"
                                       f"Оценка: {r_review.grade}\n\n"
                                       f"Отзыв: {r_review.review}", reply_markup=InlineKeyboardMarkup(
@@ -220,6 +254,7 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                  [InlineKeyboardButton(text='Получить случайный отзыв',
                                                        callback_data=f'com_2@{d[1]}')]]))
         except IndexError:
+            await call.message.edit_reply_markup(None)
             await call.message.answer("На данный фильм нет отзывов.", reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{d[1]}')],
                                  [InlineKeyboardButton(text='Получить случайный отзыв',
@@ -259,29 +294,37 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == 'Нет')
 async def end_fd(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
+    await call.message.edit_reply_markup(None)
     await call.message.answer('Нет так нет.')
 
 
-@dp.callback_query(F.data == 'Да')
+@dp.callback_query(F.data.startswith('Да'))
 async def feedback(call: types.CallbackQuery, state: FSMContext):
-    await state.set_state(Film.grade)
+    d = call.data.split('@')
+    await state.set_state(ReviewStates.grade)
     await call.message.delete()
     await call.message.answer('Поставьте оценку от 0 до 5:', reply_markup=InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=f'{x}', callback_data=f'grade.{x}')] for x in range(6)]
+        inline_keyboard=[[InlineKeyboardButton(text=f'{x}', callback_data=f'grade.{x}.{d[1]}')] for x in range(6)]
     ))
 
 
 @dp.callback_query(F.data.startswith('grade.'))
 async def safe_grade(call: types.CallbackQuery, state: FSMContext):
-    await state.update_data(grade=call.data[-1])
-    await call.message.edit_text(f'Ваша оценка: {call.data[-1]}')
+    d = call.data.split('.')
+    await state.update_data(grade=d[1])
+    await call.message.edit_text(f'Ваша оценка: {d[1]}')
     await call.message.answer('Спасибо за оценку!')
 
-    await state.set_state(Film.review)
+    q_film = db_sess.query(Film).filter(Film.id == int(d[2])).first()
+    q_film.grade = round(((q_film.grade * q_film.quantity) + int(d[1])) / (q_film.quantity + 1), 2)
+    q_film.quantity += 1
+    db_sess.commit()
+
+    await state.set_state(ReviewStates.review)
     await call.message.answer('Оставьте отзыв:')
 
 
-@dp.message(Film.review)
+@dp.message(ReviewStates.review)
 async def safe_review(message: types.Message, state: FSMContext):
     data = await state.get_data()
     fback = Review()
