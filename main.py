@@ -348,7 +348,7 @@ async def stop(message: types.Message):
     await message.reply("Пока-пока!", reply_markup=ReplyKeyboardRemove())
 
 
-'''@dp.callback_query(F.data == "/search")
+r'''@dp.callback_query(F.data == "/search")
 async def search(message: types.Message, call: types.CallbackQuery):
     await message.answer('Введите описание фильма:')
     description = message.text
