@@ -1,14 +1,7 @@
-import re
-import aiohttp
 import asyncio
 import logging
 import random
 import types
-
-from base64 import b64decode
-from selenium import webdriver
-
-from bs4 import BeautifulSoup
 
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command
@@ -30,7 +23,7 @@ dp = Dispatcher()
 db_sess = db_session.create_session()
 
 reply_keyboard = [[KeyboardButton(text='/help')],
-                  [KeyboardButton(text='/genres'), KeyboardButton(text='/game')],
+                  [KeyboardButton(text='/genres')],
                   [KeyboardButton(text='/watchs'), KeyboardButton(text='/reviews')],
                   [KeyboardButton(text="/stop")]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
@@ -103,72 +96,6 @@ async def send_help(callback: types.CallbackQuery):
     )
 
 
-async def film_image():
-    async with aiohttp.ClientSession() as session:
-        q = db_sess.query(Film).all()
-        st = 0
-        while st != 200:
-            f = random.choice(q)
-            async with session.get(
-                    f'https://yandex.ru/images/search?text="кадр из фильма {f.title}"') as response:
-                print("Status:", response.status)
-                print("Content-type:", response.headers['content-type'])
-
-                if response.status != 200:
-                    continue
-                else:
-                    st = response.status
-                    html = await response.text()
-                    with open('h.html', 'w', encoding='utf-8') as f:
-                        f.write(html)
-                    i = response.content
-                    soup = BeautifulSoup(html, 'html.parser')
-                    # print(soup)
-
-                    imgage = []
-                    fd = soup.find('img', class_='ImagesContentImage-Image ImagesContentImage-Image_clickable')
-                    # print(fd)
-                    fin = html.find_all('img')
-                    print(fin)
-                    for img in fin:
-                        imgage.append(img.get('src'))
-
-                    link = random.choice(imgage)
-
-                    # print(soup)
-                    print(f'https://yandex.ru/images/search?text=кадр из фильма {f.title}')
-                    print(f.title)
-                    print(imgage)
-                    print(link)
-
-                    # sel = soup.select('div[class="SerpList"]')
-                    # r_image = random.choice(sel[0].find_all('img'))
-                    # link = r_image.get('src')
-                    return link
-                    # print(html, file=open('page.html', 'w', encoding='utf-8'))
-
-
-async def dub():
-    q = db_sess.query(Film).all()
-    f = random.choice(q)
-
-    driver = webdriver.Chrome()
-    driver.implicitly_wait(5)
-    driver.get(f'https://yandex.ru/images/search?text=кадр из фильма {f.title}')
-    img = driver.find_element_by_xpath('//img[starts-with(@src, "data:image/jpeg;base64, ")]')
-    print(img)
-    src = img.get_attribute('src')
-    print(src)
-
-
-@dp.message(Command('game'))
-async def game(message: types.Message):
-    await message.answer('Угадай фильм по кадру из него.')
-    link = await film_image()
-    # print(link)
-    await message.answer_photo(photo=link)
-
-
 @dp.message(Command('help'))
 async def stop(message: types.Message):
     builder = InlineKeyboardBuilder()
@@ -196,20 +123,21 @@ def list_watchs(id, page):
 async def send_list_watchs(message: types.Message):
     s_watchs = list_watchs(message.from_user.id, 0)
     if s_watchs[0]:
-        data = "\n".join(s_watchs[0])
+        data = s_watchs[0]
         try:
             z1 = (0 - 1) % s_watchs[1]
             z2 = (0 + 1) % s_watchs[1]
         except ZeroDivisionError:
             z1 = 0
             z2 = 0
-        await message.answer(f'Список просмотренных фильмов:\n\n{data}',
-                             reply_markup=InlineKeyboardMarkup(
-                                 inline_keyboard=[
-                                     [InlineKeyboardButton(text='<',
-                                                           callback_data=f'com_3@{z1}'),
-                                      InlineKeyboardButton(text='>',
-                                                           callback_data=f'com_3@{z2}')]]))
+        d_w = []
+        for g in data:
+            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)))])
+        d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
+                    InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
+        dw = InlineKeyboardMarkup(inline_keyboard=[g for g in d_w])
+        await message.answer(f'Список просмотренных фильмов:',
+                             reply_markup=dw)
     else:
         await message.answer('Вы не посмотрели ни одного фильма. Список просмотренных фильмов пуст.')
 
@@ -305,20 +233,21 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                                        callback_data=f'com_2@{d[1]}')]]))
     elif d[0] == '3':
         s_watchs = list_watchs(call.from_user.id, d[1])
-        data = "\n".join(s_watchs[0])
+        data = s_watchs[0]
         try:
             z1 = (int(d[1]) - 1) % s_watchs[1]
             z2 = (int(d[1]) + 1) % s_watchs[1]
         except ZeroDivisionError:
             z1 = 0
             z2 = 0
-        await call.message.edit_text(f'Список просмотренных фильмов:\n\n{data}',
-                                     reply_markup=InlineKeyboardMarkup(
-                                         inline_keyboard=[
-                                             [InlineKeyboardButton(text='<',
-                                                                   callback_data=f'com_3@{z1}'),
-                                              InlineKeyboardButton(text='>',
-                                                                   callback_data=f'com_3@{z2}')]]))
+        d_w = []
+        for g in data:
+            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)))])
+        d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
+                    InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
+        dw = InlineKeyboardMarkup(inline_keyboard=[g for g in d_w])
+        await call.message.edit_text(f'Список просмотренных фильмов:',
+                                     reply_markup=dw)
     elif d[0] == '4':
         s_reviews = list_reviews(call.from_user.id, d[1])
         print(s_reviews)
