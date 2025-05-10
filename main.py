@@ -27,7 +27,7 @@ db_sess = db_session.create_session()
 
 reply_keyboard = [[KeyboardButton(text='/help')],
                   [KeyboardButton(text='/genres'), KeyboardButton(text='/game')],
-                  [KeyboardButton(text='/watchs'), KeyboardButton(text='/reviews')],
+                  [KeyboardButton(text='/watches'), KeyboardButton(text='/reviews')],
                   [KeyboardButton(text="/stop")]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
 
@@ -92,7 +92,7 @@ async def send_help(callback: types.CallbackQuery):
     await callback.answer(
         text=f"Функционал:\n\n"
              f"/genres - выбрать жанр для поиска фильма\n\n"
-             f"/watchs - посмотреть список просмотренных фильмов\n\n"
+             f"/watches - посмотреть список просмотренных фильмов\n\n"
              f"/reviews - посмотреть свои отзывы и оценки на фильмы.\n\n"
              f"/stop - прекратить работу",
         show_alert=True,
@@ -142,20 +142,20 @@ async def genres(message: types.Message):
     await message.answer('Выберите жанр из списка ниже:', reply_markup=gs)
 
 
-def list_watchs(id, page):
+def list_watches(id, page):
     offset_v = int(page) * 10
     return ([x.film.title for x in db_sess.query(Watch).filter(Watch.id_user == id).limit(10).offset(offset_v).all()],
             db_sess.query(Watch).filter(Watch.id_user == id).count() // 10)
 
 
-@dp.message(Command('watchs'))
-async def send_list_watchs(message: types.Message):
-    s_watchs = list_watchs(message.from_user.id, 0)
-    if s_watchs[0]:
-        data = "\n".join(s_watchs[0])
+@dp.message(Command('watches'))
+async def send_list_watches(message: types.Message):
+    s_watches = list_watches(message.from_user.id, 0)
+    if s_watches[0]:
+        data = "\n".join(s_watches[0])
         try:
-            z1 = (0 - 1) % s_watchs[1]
-            z2 = (0 + 1) % s_watchs[1]
+            z1 = (0 - 1) % s_watches[1]
+            z2 = (0 + 1) % s_watches[1]
         except ZeroDivisionError:
             z1 = 0
             z2 = 0
@@ -260,11 +260,11 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                  [InlineKeyboardButton(text='Получить случайный отзыв',
                                                        callback_data=f'com_2@{d[1]}')]]))
     elif d[0] == '3':
-        s_watchs = list_watchs(call.from_user.id, d[1])
-        data = "\n".join(s_watchs[0])
+        s_watches = list_watches(call.from_user.id, d[1])
+        data = "\n".join(s_watches[0])
         try:
-            z1 = (int(d[1]) - 1) % s_watchs[1]
-            z2 = (int(d[1]) + 1) % s_watchs[1]
+            z1 = (int(d[1]) - 1) % s_watches[1]
+            z2 = (int(d[1]) + 1) % s_watches[1]
         except ZeroDivisionError:
             z1 = 0
             z2 = 0
@@ -295,7 +295,8 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
 async def end_fd(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.edit_reply_markup(None)
-    await call.message.answer('Нет так нет.')
+    await call.message.answer('Хорошо! Нажмите кнопку снизу, чтоб посмотреть другие функции бота!', reply_markup=InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text='Help', callback_data='/help')]]))
 
 
 @dp.callback_query(F.data.startswith('Да'))
