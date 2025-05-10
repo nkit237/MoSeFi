@@ -28,7 +28,7 @@ db_sess = db_session.create_session()
 reply_keyboard = [[KeyboardButton(text='/help')],
                   [KeyboardButton(text='/genres'), KeyboardButton(text='/game')],
                   [KeyboardButton(text='/watches'), KeyboardButton(text='/reviews')],
-                  [KeyboardButton(text="/stop")]]
+                  [KeyboardButton(text='/search'), KeyboardButton(text="/stop")]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 genres = [[]]
@@ -91,9 +91,10 @@ async def start(message: types.Message):
 async def send_help(callback: types.CallbackQuery):
     await callback.answer(
         text=f"Функционал:\n\n"
-             f"/genres - выбрать жанр для поиска фильма\n\n"
-             f"/watches - посмотреть список просмотренных фильмов\n\n"
-             f"/reviews - посмотреть свои отзывы и оценки на фильмы.\n\n"
+             f"/genres - выбрать жанр для поиска\n\n"
+             f"/watches - список просмотренных фильмов\n\n"
+             f"/reviews - посмотреть свои отзывы и оценки\n\n"
+             f"/search - поиск фильма по описанию\n\n"
              f"/stop - прекратить работу",
         show_alert=True,
     )
@@ -295,8 +296,7 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
 async def end_fd(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.edit_reply_markup(None)
-    await call.message.answer('Хорошо! Нажмите кнопку снизу, чтоб посмотреть другие функции бота!', reply_markup=InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text='Help', callback_data='/help')]]))
+    await call.message.answer('Хорошо! Нажмите кнопку снизу, чтоб посмотреть другие функции бота!')
 
 
 @dp.callback_query(F.data.startswith('Да'))
@@ -346,6 +346,30 @@ async def safe_review(message: types.Message, state: FSMContext):
 @dp.message(Command('stop'))
 async def stop(message: types.Message):
     await message.reply("Пока-пока!", reply_markup=ReplyKeyboardRemove())
+
+
+'''@dp.callback_query(F.data == "/search")
+async def search(message: types.Message, call: types.CallbackQuery):
+    await message.answer('Введите описание фильма:')
+    description = message.text
+    r_film = found_film(description)
+    if r_film:
+        await call.message.answer('Возможно, вы искали этот фильм')
+        await call.message.answer(f"Название: {r_film.title}\n\n"
+                                     f"Жанр: {call.data}\n\n"
+                                     f"Сюжет: {r_film.about}\n\n"
+                                     f"Оценка: {r_film.grade}\nКол-во оценок: {r_film.quantity}\n\n"
+                                     f"Ссылка на трейлер: {r_film.link}", reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{r_film.id}')],
+                             [InlineKeyboardButton(text='Получить случайный отзыв',
+                                                   callback_data=f'com_2@{r_film.id}')]]))
+    else:
+        await call.message.answer('К сожалению, в нашей базе данных не нашлось похожего фильма...', reply_markup=InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text='Help', callback_data='/help')]]))
+
+
+def found_film(description):
+    pass'''
 
 
 @dp.message()
