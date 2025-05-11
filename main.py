@@ -1,4 +1,5 @@
 import asyncio
+import aiohttp
 import logging
 import random
 import types
@@ -113,6 +114,14 @@ async def genres(message: types.Message):
     await message.answer('Выберите жанр из списка ниже:', reply_markup=gs)
 
 
+async def link_film_to_kp(film):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f'https://kinobd.net/api/films/search/title?q={film}') as response:
+            html = await response.json()
+            k_id = html['data'][0]['kinopoisk_id']
+            return f'https://www.kinopoisk.ru/film/{k_id}'
+
+
 def list_watchs(id, page):
     offset_v = int(page) * 10
     return ([x.film.title for x in db_sess.query(Watch).filter(Watch.id_user == id).limit(10).offset(offset_v).all()],
@@ -132,7 +141,8 @@ async def send_list_watchs(message: types.Message):
             z2 = 0
         d_w = []
         for g in data:
-            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)))])
+            link = await link_film_to_kp(g)
+            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)), url=str(link))])
         d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
                     InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
         dw = InlineKeyboardMarkup(inline_keyboard=[g for g in d_w])
@@ -143,7 +153,6 @@ async def send_list_watchs(message: types.Message):
 
 
 def list_reviews(id, page):
-    print(page)
     offset_v = int(page) * 1
     return ([(x.review, x.grade, x.film.title) for x in
              db_sess.query(Review).filter(Review.id_user == id).limit(1).offset(offset_v).all()],
@@ -153,11 +162,12 @@ def list_reviews(id, page):
 @dp.message(Command('reviews'))
 async def send_list_reviews(message: types.Message):
     s_reviews = list_reviews(message.from_user.id, 0)
-    print(s_reviews)
     if s_reviews[0][0]:
         r = s_reviews[0][0]
+        link = await link_film_to_kp(r[2])
         await message.answer(f'Ваши отзывы:\n'
                              f'Фильм: {r[2]}\n\n'
+                             f'Фильм на Кинопоиске: {link}\n\n'
                              f'Оценка: {r[1]}\n\n'
                              f'Отзыв: {r[0]}\n\n',
                              reply_markup=InlineKeyboardMarkup(
@@ -181,11 +191,13 @@ async def send_film(call: types.CallbackQuery):
             q_films.append(f)
     try:
         r_film = random.choice(q_films)
+        link = await link_film_to_kp(r_film.title)
         await call.message.edit_text(f"Название: {r_film.title}\n\n"
                                      f"Жанр: {call.data}\n\n"
                                      f"Сюжет: {r_film.about}\n\n"
                                      f"Оценка: {r_film.grade}\nКол-во оценок: {r_film.quantity}\n\n"
-                                     f"Ссылка на трейлер: {r_film.link}", reply_markup=InlineKeyboardMarkup(
+                                     f"Ссылка на трейлер: {r_film.link}\n\n"
+                                     f"Фильм на Кинопоиске: {link}", reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{r_film.id}')],
                              [InlineKeyboardButton(text='Получить случайный отзыв',
                                                    callback_data=f'com_2@{r_film.id}')]]))
@@ -242,7 +254,8 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
             z2 = 0
         d_w = []
         for g in data:
-            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)))])
+            link = await link_film_to_kp(g)
+            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)), url=str(link))])
         d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
                     InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
         dw = InlineKeyboardMarkup(inline_keyboard=[g for g in d_w])
@@ -250,10 +263,11 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                      reply_markup=dw)
     elif d[0] == '4':
         s_reviews = list_reviews(call.from_user.id, d[1])
-        print(s_reviews)
         r = s_reviews[0][0]
+        link = await link_film_to_kp(r[2])
         await call.message.edit_text(f'Ваши отзывы:\n'
                                      f'Фильм: {r[2]}\n\n'
+                                     f'Фильм на Кинопоиске: {link}\n\n'
                                      f'Оценка: {r[1]}\n\n'
                                      f'Отзыв: {r[0]}\n\n',
                                      reply_markup=InlineKeyboardMarkup(
