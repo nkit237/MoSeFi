@@ -8,6 +8,11 @@ from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.chat_action import ChatActionSender
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.options import Options
 
 from env import TG_TOKEN
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, \
@@ -24,7 +29,7 @@ dp = Dispatcher()
 db_sess = db_session.create_session()
 
 reply_keyboard = [[KeyboardButton(text='/help')],
-                  [KeyboardButton(text='/genres')],
+                  [KeyboardButton(text='/genres'), KeyboardButton(text='/game')],
                   [KeyboardButton(text='/watchs'), KeyboardButton(text='/reviews')],
                   [KeyboardButton(text="/stop")]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
@@ -109,6 +114,31 @@ async def stop(message: types.Message):
     )
 
 
+def get_link_img(film):
+    url = f'https://yandex.ru/images/search?text={film}'
+
+    options = Options()
+    options.add_argument("--headless")
+    driver = webdriver.Firefox(options=options)
+    driver.implicitly_wait(10)
+    driver.get(url)
+
+    imgs = driver.find_elements(By.XPATH, '//img[starts-with(@src, "//avatars.mds.yandex.net/")]')
+    src = random.choice(imgs).get_attribute('src')
+    return src
+
+
+@dp.message(Command('game'))
+async def game(message: types.Message):
+    async with ChatActionSender.upload_photo(bot=message.bot, chat_id=message.chat.id):
+        films = db_sess.query(Film).all()
+        r_film = random.choice(films).title
+        link = get_link_img(r_film)
+        await message.answer_photo(link, caption='Угадай фильм по кадру из него!')
+        # https://pypi.org/project/fuzzywuzzy/
+
+
+
 @dp.message(Command('genres'))
 async def genres(message: types.Message):
     await message.answer('Выберите жанр из списка ниже:', reply_markup=gs)
@@ -116,7 +146,9 @@ async def genres(message: types.Message):
 
 async def link_film_to_kp(film):
     async with aiohttp.ClientSession() as session:
-        async with session.get(f'https://kinobd.net/api/films/search/title?q={film}') as response:
+        async with session.get(f'https://kinobd.net/api/films/search/title?q={film}&page=1') as response:
+            if response.status >= 300:
+                return 0
             html = await response.json()
             k_id = html['data'][0]['kinopoisk_id']
             return f'https://www.kinopoisk.ru/film/{k_id}'
@@ -142,6 +174,9 @@ async def send_list_watchs(message: types.Message):
         d_w = []
         for g in data:
             link = await link_film_to_kp(g)
+            if link == 0:
+                d_w.append([InlineKeyboardButton(text=str(g), callback_data='com_5@')])
+                continue
             d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)), url=str(link))])
         d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
                     InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
@@ -255,6 +290,9 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
         d_w = []
         for g in data:
             link = await link_film_to_kp(g)
+            if link == 0:
+                d_w.append([InlineKeyboardButton(text=str(g), callback_data='com_5@')])
+                continue
             d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)), url=str(link))])
         d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
                     InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
@@ -276,6 +314,11 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                                                    callback_data=f'com_4@{(int(d[1]) - 1) % s_reviews[1]}'),
                                               InlineKeyboardButton(text='>',
                                                                    callback_data=f'com_4@{(int(d[1]) + 1) % s_reviews[1]}')]]))
+    elif d[0] == '5':
+        await call.answer(
+            text=f"Нет ссылки на фильм на Кинопоиске.",
+            show_alert=True,
+        )
 
 
 @dp.callback_query(F.data == 'Нет')
