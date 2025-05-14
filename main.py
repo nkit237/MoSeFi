@@ -97,9 +97,8 @@ async def send_help(callback: types.CallbackQuery):
     await callback.answer(
         text=f"Функционал:\n\n"
              f"/genres - выбрать жанр для поиска фильма.\n\n"
-             f"/game - сыграть в игру, где нужно угадать фиьм по кадру из него.\n\n"
-             f"/watchs - посмотреть список просмотренных фильмов.\n\n"
-             f"/reviews - посмотреть свои отзывы и оценки на фильмы.\n\n"
+             f"/game - сыграть в игру.\n\n"
+             f"/watchs, /reviews - посмотреть список просмотренных фильмов, отзывов.\n\n"
              f"/stop - прекратить работу.",
         show_alert=True,
     )
