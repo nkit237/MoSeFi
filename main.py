@@ -14,6 +14,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 
+from fuzzywuzzy import fuzz
+
 from env import TG_TOKEN
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, \
     InlineKeyboardButton
@@ -94,10 +96,11 @@ async def start(message: types.Message):
 async def send_help(callback: types.CallbackQuery):
     await callback.answer(
         text=f"Функционал:\n\n"
-             f"/genres - выбрать жанр для поиска фильма\n\n"
-             f"/watchs - посмотреть список просмотренных фильмов\n\n"
+             f"/genres - выбрать жанр для поиска фильма.\n\n"
+             f"/game - сыграть в игру, где нужно угадать фиьм по кадру из него.\n\n"
+             f"/watchs - посмотреть список просмотренных фильмов.\n\n"
              f"/reviews - посмотреть свои отзывы и оценки на фильмы.\n\n"
-             f"/stop - прекратить работу",
+             f"/stop - прекратить работу.",
         show_alert=True,
     )
 
@@ -129,14 +132,17 @@ def get_link_img(film):
 
 
 @dp.message(Command('game'))
-async def game(message: types.Message):
+async def game(message: types.Message, state: FSMContext):
     async with ChatActionSender.upload_photo(bot=message.bot, chat_id=message.chat.id):
         films = db_sess.query(Film).all()
         r_film = random.choice(films).title
         link = get_link_img(r_film)
-        await message.answer_photo(link, caption='Угадай фильм по кадру из него!')
-        # https://pypi.org/project/fuzzywuzzy/
-
+        current_state = await state.get_state()
+        await state.update_data(current_state=current_state, film_title=r_film)
+        await state.set_state(States.game)
+        await message.answer_photo(link, caption='Угадай фильм по кадру из него!', reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
+        ))
 
 
 @dp.message(Command('genres'))
@@ -240,10 +246,11 @@ async def send_film(call: types.CallbackQuery):
         await call.message.answer("Больше нет фильмов по указанному жанру.")
 
 
-class ReviewStates(StatesGroup):
+class States(StatesGroup):
     grade = State()
     review = State()
     confirm = State()
+    game = State()
 
 
 @dp.callback_query(F.data.startswith("com_"))
@@ -255,7 +262,7 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
         watch.id_film = int(d[1])
         db_sess.add(watch)
         db_sess.commit()
-        await state.set_state(ReviewStates.confirm)
+        await state.set_state(States.confirm)
         await state.update_data(film=watch.id_film, user=watch.id_user)
         await call.message.edit_reply_markup(None)
         await call.message.answer("Хотите оставить отзыв и оценку?", reply_markup=InlineKeyboardMarkup(
@@ -331,7 +338,7 @@ async def end_fd(call: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith('Да'))
 async def feedback(call: types.CallbackQuery, state: FSMContext):
     d = call.data.split('@')
-    await state.set_state(ReviewStates.grade)
+    await state.set_state(States.grade)
     await call.message.delete()
     await call.message.answer('Поставьте оценку от 0 до 5:', reply_markup=InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=f'{x}', callback_data=f'grade.{x}.{d[1]}')] for x in range(6)]
@@ -350,11 +357,11 @@ async def safe_grade(call: types.CallbackQuery, state: FSMContext):
     q_film.quantity += 1
     db_sess.commit()
 
-    await state.set_state(ReviewStates.review)
+    await state.set_state(States.review)
     await call.message.answer('Оставьте отзыв:')
 
 
-@dp.message(ReviewStates.review)
+@dp.message(States.review)
 async def safe_review(message: types.Message, state: FSMContext):
     data = await state.get_data()
     fback = Review()
@@ -370,6 +377,34 @@ async def safe_review(message: types.Message, state: FSMContext):
     db_sess.commit()
     await state.clear()
     await message.answer('Сохранено!')
+
+
+@dp.message(States.game)
+async def answer_game(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    answer = message.text
+    f = data['film_title']
+    k = fuzz.partial_ratio(answer, f)
+    if k >= 80:
+        if data['current_state'] is None:
+            await state.clear()
+        else:
+            await state.set_state(data['current_state'])
+        await message.answer(f'Поздравляю! Вы угадали, это - {f}.')
+    else:
+        await message.answer(f'Неправильно, попробуй ещё раз.', reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
+        ))
+
+
+@dp.callback_query(F.data == 'stop_game')
+async def stop_game(call: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if data['current_state'] is None:
+        await state.clear()
+    else:
+        await state.set_state(data['current_state'])
+    await call.message.answer(f'Игра окончена.')
 
 
 @dp.message(Command('stop'))
