@@ -143,11 +143,9 @@ async def game(message: types.Message, state: FSMContext):
         r_film = random.choice(films).title
         link = get_link_img(r_film)
         current_state = await state.get_state()
-        await state.update_data(current_state=current_state, film_title=r_film)
+        await state.update_data(current_state=current_state, film_title=r_film, p=0)
         await state.set_state(States.game)
-        await message.answer_photo(link, caption='Угадай фильм по кадру из него!', reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
-        ))
+        await message.answer_photo(link, caption='Угадай фильм по кадру из него!')
 
 
 @dp.message(Command('genres'))
@@ -395,21 +393,35 @@ async def answer_game(message: types.Message, state: FSMContext):
             await state.clear()
         else:
             await state.set_state(data['current_state'])
-        await message.answer(f'Поздравляю! Вы угадали, это - {f}.')
+        if data['p'] == 0:
+            await state.update_data(p=1)
+            await message.answer(f'Поздравляю! Вы угадали, это - {f}.')
+        else:
+            await message.chat.delete_message(message_id=message.message_id - 1)
+            await message.answer(f'Поздравляю! Вы угадали, это - {f}.')
     else:
-        await message.answer(f'Неправильно, попробуй ещё раз.', reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
-        ))
+        if data['p'] == 0:
+            await state.update_data(p=1)
+            await message.answer(f'Неправильно, попробуй ещё раз.', reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
+            ))
+        else:
+            await message.chat.delete_message(message_id=message.message_id - 1)
+            await message.answer(f'Неправильно, попробуй ещё раз.', reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
+            ))
 
 
 @dp.callback_query(F.data == 'stop_game')
 async def stop_game(call: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    f = data['film_title']
     if data['current_state'] is None:
         await state.clear()
     else:
         await state.set_state(data['current_state'])
-    await call.message.answer(f'Игра окончена.')
+    await call.message.chat.delete_message(message_id=call.message.message_id)
+    await call.message.answer(f'Игра окончена. Правильный ответ: {f}')
 
 
 @dp.message(Command('stop'))
