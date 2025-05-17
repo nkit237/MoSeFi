@@ -1,15 +1,24 @@
-import aiohttp
 import asyncio
+import aiohttp
 import logging
 import random
 import types
-
-from bs4 import BeautifulSoup
 
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.chat_action import ChatActionSender
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.options import Options
+
+# from selenium.webdriver.chrome.service import Service
+# from selenium.webdriver.chrome.options import Options
+# from webdriver_manager.chrome import ChromeDriverManager
+
+from fuzzywuzzy import fuzz
 
 from env import TG_TOKEN
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, \
@@ -27,8 +36,8 @@ db_sess = db_session.create_session()
 
 reply_keyboard = [[KeyboardButton(text='/help')],
                   [KeyboardButton(text='/genres'), KeyboardButton(text='/game')],
-                  [KeyboardButton(text='/watches'), KeyboardButton(text='/reviews')],
-                  [KeyboardButton(text='/search'), KeyboardButton(text="/stop")]]
+                  [KeyboardButton(text='/watchs'), KeyboardButton(text='/reviews')],
+                  [KeyboardButton(text="/stop")]]
 kb = ReplyKeyboardMarkup(keyboard=reply_keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 genres = [[]]
@@ -91,39 +100,12 @@ async def start(message: types.Message):
 async def send_help(callback: types.CallbackQuery):
     await callback.answer(
         text=f"Функционал:\n\n"
-             f"/genres - выбрать жанр для поиска\n\n"
-             f"/watches - список просмотренных фильмов\n\n"
-             f"/reviews - посмотреть свои отзывы и оценки\n\n"
-             f"/search - поиск фильма по описанию\n\n"
-             f"/stop - прекратить работу",
+             f"/genres - выбрать жанр для поиска фильма.\n\n"
+             f"/game - сыграть в игру.\n\n"
+             f"/watchs, /reviews - посмотреть список просмотренных фильмов, отзывов.\n\n"
+             f"/stop - прекратить работу.",
         show_alert=True,
     )
-
-
-async def film_image():
-    async with aiohttp.ClientSession() as session:
-        q = db_sess.query(Film).all()
-        f = random.choice(q)
-        async with session.get(
-                f'https://yandex.ru/images/search?from=tabbar&text=кадр из фильма {f.title}') as response:
-            print("Status:", response.status)
-            print("Content-type:", response.headers['content-type'])
-
-            html = await response.text()
-            soup = BeautifulSoup(html, 'html.parser')
-            sel = soup.select('div[class="SerpList"]')
-            r_image = random.choice(sel[0].find_all('img'))
-            link = r_image.get('src')
-            return link
-            # print(html, file=open('page.html', 'w', encoding='utf-8'))
-
-
-@dp.message(Command('game'))
-async def game(message: types.Message):
-    await message.answer('Угадай фильм по кадру из него.')
-    link = await film_image()
-    print(link)
-    await message.answer(link)
 
 
 @dp.message(Command('help'))
@@ -138,41 +120,85 @@ async def stop(message: types.Message):
     )
 
 
+def get_link_img(film):
+    url = f'https://yandex.ru/images/search?text={film}'
+
+    options = Options()
+    options.add_argument("--headless")
+    driver = webdriver.Firefox(options=options)
+    # se = Service(executable_path=ChromeDriverManager().install())
+    # driver = webdriver.Chrome(service=se, options=options)
+    driver.implicitly_wait(10)
+    driver.get(url)
+
+    imgs = driver.find_elements(By.XPATH, '//img[starts-with(@src, "//avatars.mds.yandex.net/")]')
+    src = random.choice(imgs).get_attribute('src')
+    return src
+
+
+@dp.message(Command('game'))
+async def game(message: types.Message, state: FSMContext):
+    async with ChatActionSender.upload_photo(bot=message.bot, chat_id=message.chat.id):
+        films = db_sess.query(Film).all()
+        r_film = random.choice(films).title
+        link = get_link_img(r_film)
+        current_state = await state.get_state()
+        await state.update_data(current_state=current_state, film_title=r_film)
+        await state.set_state(States.game)
+        await message.answer_photo(link, caption='Угадай фильм по кадру из него!', reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
+        ))
+
+
 @dp.message(Command('genres'))
 async def genres(message: types.Message):
     await message.answer('Выберите жанр из списка ниже:', reply_markup=gs)
 
 
-def list_watches(id, page):
+async def link_film_to_kp(film):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f'https://kinobd.net/api/films/search/title?q={film}&page=1') as response:
+            if response.status >= 300:
+                return 0
+            html = await response.json()
+            k_id = html['data'][0]['kinopoisk_id']
+            return f'https://www.kinopoisk.ru/film/{k_id}'
+
+
+def list_watchs(id, page):
     offset_v = int(page) * 10
     return ([x.film.title for x in db_sess.query(Watch).filter(Watch.id_user == id).limit(10).offset(offset_v).all()],
             db_sess.query(Watch).filter(Watch.id_user == id).count() // 10)
 
 
-@dp.message(Command('watches'))
-async def send_list_watches(message: types.Message):
-    s_watches = list_watches(message.from_user.id, 0)
-    if s_watches[0]:
-        data = "\n".join(s_watches[0])
+@dp.message(Command('watchs'))
+async def send_list_watchs(message: types.Message):
+    s_watchs = list_watchs(message.from_user.id, 0)
+    if s_watchs[0]:
+        data = s_watchs[0]
         try:
-            z1 = (0 - 1) % s_watches[1]
-            z2 = (0 + 1) % s_watches[1]
+            z1 = (0 - 1) % s_watchs[1]
+            z2 = (0 + 1) % s_watchs[1]
         except ZeroDivisionError:
             z1 = 0
             z2 = 0
-        await message.answer(f'Список просмотренных фильмов:\n\n{data}',
-                             reply_markup=InlineKeyboardMarkup(
-                                 inline_keyboard=[
-                                     [InlineKeyboardButton(text='<',
-                                                           callback_data=f'com_3@{z1}'),
-                                      InlineKeyboardButton(text='>',
-                                                           callback_data=f'com_3@{z2}')]]))
+        d_w = []
+        for g in data:
+            link = await link_film_to_kp(g)
+            if link == 0:
+                d_w.append([InlineKeyboardButton(text=str(g), callback_data='com_5@')])
+                continue
+            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)), url=str(link))])
+        d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
+                    InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
+        dw = InlineKeyboardMarkup(inline_keyboard=[g for g in d_w])
+        await message.answer(f'Список просмотренных фильмов:',
+                             reply_markup=dw)
     else:
         await message.answer('Вы не посмотрели ни одного фильма. Список просмотренных фильмов пуст.')
 
 
 def list_reviews(id, page):
-    print(page)
     offset_v = int(page) * 1
     return ([(x.review, x.grade, x.film.title) for x in
              db_sess.query(Review).filter(Review.id_user == id).limit(1).offset(offset_v).all()],
@@ -182,11 +208,12 @@ def list_reviews(id, page):
 @dp.message(Command('reviews'))
 async def send_list_reviews(message: types.Message):
     s_reviews = list_reviews(message.from_user.id, 0)
-    print(s_reviews)
     if s_reviews[0][0]:
         r = s_reviews[0][0]
+        link = await link_film_to_kp(r[2])
         await message.answer(f'Ваши отзывы:\n'
                              f'Фильм: {r[2]}\n\n'
+                             f'Фильм на Кинопоиске: {link}\n\n'
                              f'Оценка: {r[1]}\n\n'
                              f'Отзыв: {r[0]}\n\n',
                              reply_markup=InlineKeyboardMarkup(
@@ -210,11 +237,13 @@ async def send_film(call: types.CallbackQuery):
             q_films.append(f)
     try:
         r_film = random.choice(q_films)
+        link = await link_film_to_kp(r_film.title)
         await call.message.edit_text(f"Название: {r_film.title}\n\n"
                                      f"Жанр: {call.data}\n\n"
                                      f"Сюжет: {r_film.about}\n\n"
                                      f"Оценка: {r_film.grade}\nКол-во оценок: {r_film.quantity}\n\n"
-                                     f"Ссылка на трейлер: {r_film.link}", reply_markup=InlineKeyboardMarkup(
+                                     f"Ссылка на трейлер: {r_film.link}\n\n"
+                                     f"Фильм на Кинопоиске: {link}", reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{r_film.id}')],
                              [InlineKeyboardButton(text='Получить случайный отзыв',
                                                    callback_data=f'com_2@{r_film.id}')]]))
@@ -222,10 +251,11 @@ async def send_film(call: types.CallbackQuery):
         await call.message.answer("Больше нет фильмов по указанному жанру.")
 
 
-class ReviewStates(StatesGroup):
+class States(StatesGroup):
     grade = State()
     review = State()
     confirm = State()
+    game = State()
 
 
 @dp.callback_query(F.data.startswith("com_"))
@@ -237,7 +267,7 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
         watch.id_film = int(d[1])
         db_sess.add(watch)
         db_sess.commit()
-        await state.set_state(ReviewStates.confirm)
+        await state.set_state(States.confirm)
         await state.update_data(film=watch.id_film, user=watch.id_user)
         await call.message.edit_reply_markup(None)
         await call.message.answer("Хотите оставить отзыв и оценку?", reply_markup=InlineKeyboardMarkup(
@@ -261,27 +291,33 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                  [InlineKeyboardButton(text='Получить случайный отзыв',
                                                        callback_data=f'com_2@{d[1]}')]]))
     elif d[0] == '3':
-        s_watches = list_watches(call.from_user.id, d[1])
-        data = "\n".join(s_watches[0])
+        s_watchs = list_watchs(call.from_user.id, d[1])
+        data = s_watchs[0]
         try:
-            z1 = (int(d[1]) - 1) % s_watches[1]
-            z2 = (int(d[1]) + 1) % s_watches[1]
+            z1 = (int(d[1]) - 1) % s_watchs[1]
+            z2 = (int(d[1]) + 1) % s_watchs[1]
         except ZeroDivisionError:
             z1 = 0
             z2 = 0
-        await call.message.edit_text(f'Список просмотренных фильмов:\n\n{data}',
-                                     reply_markup=InlineKeyboardMarkup(
-                                         inline_keyboard=[
-                                             [InlineKeyboardButton(text='<',
-                                                                   callback_data=f'com_3@{z1}'),
-                                              InlineKeyboardButton(text='>',
-                                                                   callback_data=f'com_3@{z2}')]]))
+        d_w = []
+        for g in data:
+            link = await link_film_to_kp(g)
+            if link == 0:
+                d_w.append([InlineKeyboardButton(text=str(g), callback_data='com_5@')])
+                continue
+            d_w.append([InlineKeyboardButton(text=str(g), callback_data=str(data.index(g)), url=str(link))])
+        d_w.append([InlineKeyboardButton(text='<', callback_data=f'com_3@{z1}'),
+                    InlineKeyboardButton(text='>', callback_data=f'com_3@{z2}')])
+        dw = InlineKeyboardMarkup(inline_keyboard=[g for g in d_w])
+        await call.message.edit_text(f'Список просмотренных фильмов:',
+                                     reply_markup=dw)
     elif d[0] == '4':
         s_reviews = list_reviews(call.from_user.id, d[1])
-        print(s_reviews)
         r = s_reviews[0][0]
+        link = await link_film_to_kp(r[2])
         await call.message.edit_text(f'Ваши отзывы:\n'
                                      f'Фильм: {r[2]}\n\n'
+                                     f'Фильм на Кинопоиске: {link}\n\n'
                                      f'Оценка: {r[1]}\n\n'
                                      f'Отзыв: {r[0]}\n\n',
                                      reply_markup=InlineKeyboardMarkup(
@@ -290,19 +326,24 @@ async def watch_and_reviews(call: types.CallbackQuery, state: FSMContext):
                                                                    callback_data=f'com_4@{(int(d[1]) - 1) % s_reviews[1]}'),
                                               InlineKeyboardButton(text='>',
                                                                    callback_data=f'com_4@{(int(d[1]) + 1) % s_reviews[1]}')]]))
+    elif d[0] == '5':
+        await call.answer(
+            text=f"Нет ссылки на фильм на Кинопоиске.",
+            show_alert=True,
+        )
 
 
 @dp.callback_query(F.data == 'Нет')
 async def end_fd(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.edit_reply_markup(None)
-    await call.message.answer('Хорошо! Нажмите кнопку снизу, чтоб посмотреть другие функции бота!')
+    await call.message.answer('Нет так нет.')
 
 
 @dp.callback_query(F.data.startswith('Да'))
 async def feedback(call: types.CallbackQuery, state: FSMContext):
     d = call.data.split('@')
-    await state.set_state(ReviewStates.grade)
+    await state.set_state(States.grade)
     await call.message.delete()
     await call.message.answer('Поставьте оценку от 0 до 5:', reply_markup=InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=f'{x}', callback_data=f'grade.{x}.{d[1]}')] for x in range(6)]
@@ -321,11 +362,11 @@ async def safe_grade(call: types.CallbackQuery, state: FSMContext):
     q_film.quantity += 1
     db_sess.commit()
 
-    await state.set_state(ReviewStates.review)
+    await state.set_state(States.review)
     await call.message.answer('Оставьте отзыв:')
 
 
-@dp.message(ReviewStates.review)
+@dp.message(States.review)
 async def safe_review(message: types.Message, state: FSMContext):
     data = await state.get_data()
     fback = Review()
@@ -343,33 +384,37 @@ async def safe_review(message: types.Message, state: FSMContext):
     await message.answer('Сохранено!')
 
 
+@dp.message(States.game)
+async def answer_game(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    answer = message.text
+    f = data['film_title']
+    k = fuzz.partial_ratio(answer, f)
+    if k >= 80:
+        if data['current_state'] is None:
+            await state.clear()
+        else:
+            await state.set_state(data['current_state'])
+        await message.answer(f'Поздравляю! Вы угадали, это - {f}.')
+    else:
+        await message.answer(f'Неправильно, попробуй ещё раз.', reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
+        ))
+
+
+@dp.callback_query(F.data == 'stop_game')
+async def stop_game(call: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if data['current_state'] is None:
+        await state.clear()
+    else:
+        await state.set_state(data['current_state'])
+    await call.message.answer(f'Игра окончена.')
+
+
 @dp.message(Command('stop'))
 async def stop(message: types.Message):
     await message.reply("Пока-пока!", reply_markup=ReplyKeyboardRemove())
-
-
-r'''@dp.callback_query(F.data == "/search")
-async def search(message: types.Message, call: types.CallbackQuery):
-    await message.answer('Введите описание фильма:')
-    description = message.text
-    r_film = found_film(description)
-    if r_film:
-        await call.message.answer('Возможно, вы искали этот фильм')
-        await call.message.answer(f"Название: {r_film.title}\n\n"
-                                     f"Жанр: {call.data}\n\n"
-                                     f"Сюжет: {r_film.about}\n\n"
-                                     f"Оценка: {r_film.grade}\nКол-во оценок: {r_film.quantity}\n\n"
-                                     f"Ссылка на трейлер: {r_film.link}", reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text='Посмотрел(а) фильм', callback_data=f'com_1@{r_film.id}')],
-                             [InlineKeyboardButton(text='Получить случайный отзыв',
-                                                   callback_data=f'com_2@{r_film.id}')]]))
-    else:
-        await call.message.answer('К сожалению, в нашей базе данных не нашлось похожего фильма...', reply_markup=InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text='Help', callback_data='/help')]]))
-
-
-def found_film(description):
-    pass'''
 
 
 @dp.message()
