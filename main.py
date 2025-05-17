@@ -14,6 +14,10 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 
+# from selenium.webdriver.chrome.service import Service
+# from selenium.webdriver.chrome.options import Options
+# from webdriver_manager.chrome import ChromeDriverManager
+
 from fuzzywuzzy import fuzz
 
 from env import TG_TOKEN
@@ -122,6 +126,8 @@ def get_link_img(film):
     options = Options()
     options.add_argument("--headless")
     driver = webdriver.Firefox(options=options)
+    # se = Service(executable_path=ChromeDriverManager().install())
+    # driver = webdriver.Chrome(service=se, options=options)
     driver.implicitly_wait(10)
     driver.get(url)
 
