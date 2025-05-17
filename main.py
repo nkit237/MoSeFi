@@ -395,8 +395,10 @@ async def answer_game(message: types.Message, state: FSMContext):
             await state.clear()
         else:
             await state.set_state(data['current_state'])
+        await message.edit_reply_markup(None)
         await message.answer(f'Поздравляю! Вы угадали, это - {f}.')
     else:
+        await message.edit_reply_markup(None)
         await message.answer(f'Неправильно, попробуй ещё раз.', reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text='Завершить игру', callback_data='stop_game')]]
         ))
@@ -409,6 +411,7 @@ async def stop_game(call: types.CallbackQuery, state: FSMContext):
         await state.clear()
     else:
         await state.set_state(data['current_state'])
+    await call.message.edit_reply_markup(None)
     await call.message.answer(f'Игра окончена.')
 
 
